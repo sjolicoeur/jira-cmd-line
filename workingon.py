@@ -4,10 +4,13 @@
 import argparse
 import xmlrpclib
 from pprint import pprint
-
+import ConfigParser
+import os
 
 ###### issue types :::
-
+SERVER   = ""
+USERNAME = ""
+PASSWORD = ""
 
 ISSUE_TYPES = {
     'epic' : {
@@ -85,13 +88,37 @@ ISSUE_TYPES = {
 # parser.add_argument('action')
 # parser.add_argument('rest', nargs="*")
 def connect():
-    s = xmlrpclib.ServerProxy('http://nfbtools.nfb.ca:8080/rpc/xmlrpc')
-    auth = s.jira1.login('username', 'password')
+    s = xmlrpclib.ServerProxy( SERVER , allow_none=True)
+    auth = s.jira1.login( USERNAME, PASSWORD)
     return s, auth
 
+def find_in_array_of_dict(content, key, elem):
+    res =[item for item  in content if item[key] == elem]
+    if len(res) == 1 :
+        return res.pop()
+    return {}
+
 def create_new(args) : # to do 
-    print "creating"
-    print args
+    #print dir(args), args.fix_version
+    s , auth = connect()
+    issue_type = ISSUE_TYPES.get( args.opt1, '6')## need a better way
+    all_fix_versions = s.jira1.getVersions( auth, args.projectkey )
+    fix_version = find_in_array_of_dict(all_fix_versions, "name", args.fix_version ).get("id")
+    assignee = USERNAME if args.assign_to_me else args.assignee
+    issue = { 
+        'project': args.projectkey, 
+        'type': issue_type['id'],
+        'summary': args.msg, 
+        'description': args.description if args.description else args.msg, 
+        #"assignee" : assignee, 
+        'status' : args.status,
+        'fixVersions': [ {'id': fix_version }]}
+    if assignee :
+        issue['assignee'] = assignee
+    #print issue
+    newissue = s.jira1.createIssue(auth, issue )
+    print "Created issue ::  %(key)s => http://nfbtools.nfb.ca:8080/browse/%(key)s " % newissue, newissue
+    #print args
 
 def update_issue(args): # to do
     print "updating"
@@ -110,9 +137,9 @@ def show_fix_versions(args):
     s , auth = connect()
     res = s.jira1.getVersions( auth, args.projectkey )
     print ":::: fix versions in the system ::::"
-    #pprint( res )  
+    pprint( res )  
     for item in res :
-        print "id : %(id)s \t| name : %(name)s \t| \n|description : %(description)s\n-------" % item
+        print "id : %(id)s \t| name : %(name)s \t| \n-------" % item
 
 def show_statuses(args):
     s , auth = connect()
@@ -147,7 +174,38 @@ def show_projects(args):
         #pprint(item)
         print "id : %(id)s \t| key : %(key)s  \t| \n| description : %(description)s \n" % item
 
+def write_config(username="asd", password="ads", server='http://nfbtools.nfb.ca:8080/rpc/xmlrpc'):
+    config = ConfigParser.RawConfigParser()
+    config.add_section('settings')
+    config.set('settings', 'username', username)
+    config.set('settings', 'password', password)
+    config.set('settings', 'server', server)
+    # Writing our configuration file to 'example.cfg'
+    homepath = os.path.expanduser("~")
+    filename = str(os.path.join( homepath, ".workingon.cfg" ))
+    with open( filename, 'w+b') as configfile:
+        config.write(configfile)
+
+def read_config():
+    homepath = os.path.expanduser("~")
+    filename = str(os.path.join( homepath, ".workingon.cfg" ))
+    config = ConfigParser.RawConfigParser()
+    config.read( filename )  
+    print "setting server info"
+    globals()['SERVER']   = config.get('settings', 'server')
+    globals()['USERNAME'] = config.get('settings', 'username')
+    globals()['PASSWORD'] = config.get('settings', 'password')
+    #print SERVER, USERNAME, PASSWORD
+    #print globals()
+
 if __name__ == '__main__' :
+    try :
+        #print ":::: reading config ::::"
+        read_config()
+        print "--------------"
+    except ConfigParser.NoSectionError:
+        print "--- error writting config in '~/.workingon.cfg'. Please adjust it!!"
+        write_config()
 
     parser = argparse.ArgumentParser(prog='PROG')
     group = parser.add_mutually_exclusive_group()
@@ -173,7 +231,7 @@ if __name__ == '__main__' :
     parser.add_argument('-p', help='password')
     parser.add_argument('opt1', nargs="?")
     group3 = parser.add_mutually_exclusive_group()
-    group3.add_argument('-assign_to')
+    group3.add_argument('-assign_to', dest="assignee")
     group3.add_argument('-assign_to_me', action='store_true')
     ###
     group4 = parser.add_mutually_exclusive_group() # should not accept anything
@@ -188,11 +246,11 @@ if __name__ == '__main__' :
     args = parser.parse_args()
     #print args #, args.action
     if args.func :
-        print "executing :: ", args.func, args
+        #print "executing :: ", args.func, args
         args.func(args)
     else :
-        print "found no function to execute"
-        print args
+        print "\nfound no function to execute"
+        #print args
 
 
 
